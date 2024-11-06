@@ -5,5 +5,5 @@ gcc main.c functions.c -o app
 
 There still need to be work in the General UI 
 in the bonus questions 
-The insert functions for the TnOVS 
+
 and there are some small glitches in the logical and physical deletion
