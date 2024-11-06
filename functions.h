@@ -76,7 +76,7 @@ void physicalDelete_TnOVS(File *file, int key);
 
 //                TOVS FUNCTIONS :
 
-
+void insertRecord_TOVS(File *file, Record rec);
 void initialLoad_TOVS(File *file, int rate);
 void Display_Header_TOVS(File *file);
 void display_File_TOVS(File *file) ;
@@ -97,8 +97,9 @@ void display_TnOVS_Menu(int choice) ;
 void display_Main_Menu (int choice) ;
 void Before(char *filename) ;
 
-//              MAIN TNOVS FUNCTION  
+//              MAIN FUNCTION  
 void TnOVS();
 void TOVS();
+
 
 #endif
