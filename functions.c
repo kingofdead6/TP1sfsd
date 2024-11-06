@@ -292,7 +292,6 @@ void search_TnOVS(File *file, int key) {
     }
 }
 
-
 void logicalDelete_TnOVS(File *file, int key) {
     Block block;
     bool found = false;
@@ -384,6 +383,126 @@ void physicalDelete_TnOVS(File *file, int key) {
 //                          TOVS FUNCTIONS : 
 
 
+void insertRecord_TOVS(File *file, Record rec) {
+    char recordStr[BLOCK_SIZE * 2];
+    Record_to_String(rec, recordStr);
+    int recordLen = strlen(recordStr);
+
+    if (recordLen > BLOCK_SIZE) {
+        printf("Error: Record size exceeds block size.\n");
+        return;
+    }
+
+    Block block;
+    bool isDuplicate = false;
+    bool inserted = false;
+    int blockNumberToInsert = -1;
+    int positionToInsert = -1;
+
+    for (int blockNumber = 0; blockNumber < file->header.Number_of_Blocks; blockNumber++) {
+        readBlock(file->file, blockNumber, &block);
+
+        char tempBlockData[BLOCK_SIZE];
+        strcpy(tempBlockData, block.data);
+
+        char *token = strtok(tempBlockData, DELIMITER);
+        int position = 0;
+
+        while (token != NULL) {
+            Record existingRecord;
+            sscanf(token, "%d,%20[^,],%20[^,],%100[^,],%d",
+                   &existingRecord.key, existingRecord.First_Name,
+                   existingRecord.Last_Name, existingRecord.Description,
+                   (int *)&existingRecord.Eraser);
+
+            if (!existingRecord.Eraser) {
+                // Check for duplicate key
+                if (existingRecord.key == rec.key) {
+                    isDuplicate = true;
+                    break;
+                }
+
+                // Find the correct position to insert based on the key
+                if (existingRecord.key > rec.key && !inserted) {
+                    // Mark this block and position for insertion
+                    blockNumberToInsert = blockNumber;
+                    positionToInsert = position;
+                    inserted = true;
+                }
+            }
+
+            position += strlen(token) + strlen(DELIMITER);
+            token = strtok(NULL, DELIMITER);
+        }
+
+        if (isDuplicate) break;
+    }
+
+    if (isDuplicate) {
+        printf("Duplicate record with key %d found. Insertion skipped.\n", rec.key);
+        return;
+    }
+
+    if (inserted) {
+        // Insert the record at the identified block and position
+        readBlock(file->file, blockNumberToInsert, &block);
+        char newData[BLOCK_SIZE * 2];
+
+        // Split the block data to insert the new record in order
+        strncpy(newData, block.data, positionToInsert);
+        newData[positionToInsert] = '\0';
+        strcat(newData, recordStr);
+        strcat(newData, DELIMITER);
+        strcat(newData, block.data + positionToInsert);
+
+        // Update the block with the new ordered data
+        strncpy(block.data, newData, BLOCK_SIZE);
+        block.Byte_Used += recordLen + strlen(DELIMITER);
+        block.Number_of_records++;
+        writeBlock(file->file, blockNumberToInsert, &block);
+    } else {
+        // If the record is not inserted, append to a new block
+        int blockNumber = file->header.Number_of_Blocks > 0 ? file->header.Number_of_Blocks - 1 : 0;
+        readBlock(file->file, blockNumber, &block);
+
+        if (block.Byte_Used >= BLOCK_SIZE || file->header.Number_of_Blocks == 0) {
+            blockNumber = file->header.Number_of_Blocks;
+            memset(&block, 0, sizeof(Block));
+        }
+
+        int remainingBytes = recordLen;
+        char *recordPointer = recordStr;
+        bool finalWrite = false;
+
+        while (!finalWrite) {
+            int availableSpace = BLOCK_SIZE - block.Byte_Used;
+
+            if (remainingBytes > availableSpace) {
+                strncat(block.data, recordPointer, availableSpace);
+                block.Byte_Used += availableSpace;
+                block.Number_of_records++;
+                writeBlock(file->file, blockNumber++, &block);
+
+                memset(&block, 0, sizeof(Block));
+                recordPointer += availableSpace;
+                remainingBytes -= availableSpace;
+            } else {
+                strcat(block.data, recordPointer);
+                block.Byte_Used += remainingBytes;
+                block.Number_of_records++;
+                remainingBytes = 0;
+                finalWrite = true;
+            }
+        }
+
+        writeBlock(file->file, blockNumber, &block);
+
+        file->header.Number_of_Blocks = blockNumber + 1;
+        file->header.Number_of_Records++;
+    }
+
+    setHeader(file->file, &file->header);
+}
 
 void initialLoad_TOVS(File *file, int rate) {
     for (int i = 1; i <= rate; i++) {
@@ -394,7 +513,7 @@ void initialLoad_TOVS(File *file, int rate) {
         snprintf(rec.Description, sizeof(rec.Description), "Record number %d", i);
         rec.Eraser = false;
 
-        insertRecord_TnOVS(file, rec);
+        insertRecord_TOVS(file, rec);
     }
     printf("Initial load is completed with %d records.\n", rate);
 }
@@ -637,15 +756,15 @@ void printCentered(const char *text) {
     printf("%s\n", text);
 }
 
-
-
 void display_TnOVS_Menu(int choice) {
     system("cls");
+    printf("\033[32m");
     printCentered(" ____________________________________________ ");
     printCentered("|                                            |");
     printCentered("|                    MENU                    |");
     printCentered("|____________________________________________|");
-
+    printf("\033[0m");
+    printf("\n\n");
     const char *options[10] = {
         "1: Give an initial load",
         "2: Insert a Record",
@@ -661,7 +780,7 @@ void display_TnOVS_Menu(int choice) {
 
     for (int i = 0; i < 10; i++) {
         if (i == choice) {
-            setColor(14); // Yellow for highlighted option
+            setColor(4); // Yellow for highlighted option
             printCentered(options[i]);
             resetColor();
         } else {
@@ -672,11 +791,13 @@ void display_TnOVS_Menu(int choice) {
 
 void display_Main_Menu (int choice) {
     system("cls");
+    printf("\033[31m");
     printCentered(" ____________________________________________ ");
     printCentered("|                                            |");
     printCentered("|               MAIN MENU                    |");
     printCentered("|____________________________________________|");
-
+    printf("\033[0m");
+    printf("\n\n");
     const char *options[3] = {
         "1: TOVS",
         "2: TNOVS",
@@ -685,7 +806,7 @@ void display_Main_Menu (int choice) {
 
     for (int i = 0; i < 3; i++) {
         if (i == choice) {
-            setColor(14); // Yellow for highlighted option
+            setColor(6); // Yellow for highlighted option
             printCentered(options[i]);
             resetColor();
         } else {
@@ -705,7 +826,7 @@ void Before(char *filename) {
     printCentered("|_____________________________________________________________|\n");
     printf("\033[0m");
 
-    printf("\033[4A\033[50C");  
+    printf("\033[3A\033[50C");  
 
     scanf("%19s", filename);  
 
@@ -750,7 +871,7 @@ void TnOVS(){
                     system("cls");
                     int rate;
                     printCentered("Enter the number of records that you want to insert as an initial load : \n");
-                    printf("\033[1A\033[70C"); 
+                    printf("\033[1A\033[63C"); 
                     scanf("%d" , &rate);
                     initialLoad_TnOVS(tnovsFile ,rate);
                     break;
@@ -762,10 +883,13 @@ void TnOVS(){
                     printf("\033[1A\033[65C"); 
                     scanf("%d", &rec.key);
                     printCentered("  First Name : ");
+                    printf("\033[0A\033[66C"); 
                     scanf("%20s",&rec.First_Name);
                     printCentered("  Last Name : ");
+                    printf("\033[0A\033[66C"); 
                     scanf("%20s",&rec.Last_Name);
                     printCentered("  Description : ");
+                    printf("\033[0A\033[68C"); 
                     scanf("%100s",&rec.Description);
                     rec.Eraser=false ;
                     insertRecord_TnOVS(tnovsFile , rec);
@@ -774,6 +898,7 @@ void TnOVS(){
                     int reckey ;
                     system("cls");
                     printCentered("Enter the key of the record that you want to logically delete : \n");
+                    printf("\033[1A\033[63C"); 
                     scanf("%d" , &reckey);
                     logicalDelete_TnOVS(tnovsFile ,reckey);
                     break;
@@ -781,6 +906,7 @@ void TnOVS(){
                     int reckey2 ;
                     system("cls");
                     printCentered("Enter the key of the record that you want to phisically delete : \n");
+                    printf("\033[1A\033[63C"); 
                     scanf("%d" , &reckey2);
                     physicalDelete_TnOVS(tnovsFile ,reckey2);
                     break;
@@ -788,6 +914,7 @@ void TnOVS(){
                     int reckey3 ;
                     system("cls");
                     printCentered("Enter the key of the record that you want to Search about : \n");
+                    printf("\033[1A\033[63C"); 
                     scanf("%d" , &reckey3);
                     search_TnOVS(tnovsFile ,reckey3);
                     break;
@@ -823,6 +950,7 @@ void TnOVS(){
         }
     }
 }
+
 
 //          MAIN TOVS FUNSTION 
 
@@ -860,9 +988,9 @@ void TOVS(){
                     system("cls");
                     int rate;
                     printCentered("Enter the number of records that you want to insert as an initial load : \n");
-                    printf("\033[1A\033[70C"); 
+                    printf("\033[1A\033[63C"); 
                     scanf("%d" , &rate);
-                    initialLoad_TnOVS(tovsFile ,rate);
+                    initialLoad_TOVS(tovsFile ,rate);
                     break;
                 case 1:
                     system("cls");
@@ -872,18 +1000,22 @@ void TOVS(){
                     printf("\033[1A\033[65C"); 
                     scanf("%d", &rec.key);
                     printCentered("  First Name : ");
+                    printf("\033[0A\033[66C"); 
                     scanf("%20s",&rec.First_Name);
                     printCentered("  Last Name : ");
+                    printf("\033[0A\033[66C"); 
                     scanf("%20s",&rec.Last_Name);
                     printCentered("  Description : ");
+                    printf("\033[0A\033[68C"); 
                     scanf("%100s",&rec.Description);
                     rec.Eraser=false ;
-                    insertRecord_TnOVS(tovsFile , rec);
+                    insertRecord_TOVS(tovsFile , rec);
                     break;
                 case 2:
                     int reckey ;
                     system("cls");
                     printCentered("Enter the key of the record that you want to logically delete : \n");
+                    printf("\033[1A\033[63C"); 
                     scanf("%d" , &reckey);
                     logicalDelete_TOVS(tovsFile ,reckey);
                     break;
@@ -891,6 +1023,7 @@ void TOVS(){
                     int reckey2 ;
                     system("cls");
                     printCentered("Enter the key of the record that you want to phisically delete : \n");
+                    printf("\033[1A\033[63C"); 
                     scanf("%d" , &reckey2);
                     physicalDelete_TOVS(tovsFile ,reckey2);
                     break;
@@ -898,6 +1031,7 @@ void TOVS(){
                     int reckey3 ;
                     system("cls");
                     printCentered("Enter the key of the record that you want to Search about : \n");
+                    printf("\033[1A\033[63C"); 
                     scanf("%d" , &reckey3);
                     search_TOVS(tovsFile ,reckey3);
                     break;
@@ -933,3 +1067,6 @@ void TOVS(){
         }
     }
 }
+
+
+
